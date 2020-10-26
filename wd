@@ -1,0 +1,287 @@
+#!/bin/bash
+
+# About
+#   CLI for a subset of the Wdata API (https://developers.workiva.com/workiva-wdata)
+#   Made in Hastings by Rey Dhuny (dhuny.com)
+
+function __wd_auth() {
+
+  local curl_url="$IAM_BASE_URL/oauth2/token"
+
+  local curl_response=$(curl --location --request POST ${curl_url} \
+    --header "Content-Type: application/x-www-form-urlencoded;charset=UTF-8" \
+    --data-urlencode "client_id=${CLIENT_ID}" \
+    --data-urlencode "client_secret=${CLIENT_SECRET}" \
+    --data-urlencode "grant_type=client_credentials" \
+    --silent)
+
+  BEARER_TOKEN=$(echo $curl_response | jq '.access_token' --raw-output)
+
+}
+
+function __wd_print() {
+  echo $@ | jq
+}
+
+function __wd_file() {
+
+  case "$2" in
+
+    # Usage: file delete <file id>
+    # https://developers.workiva.com/workiva-wdata/reference#wdata-deletefileusingdelete
+    delete)
+
+      __wd_auth
+
+      local curl_url="$WDATA_BASE_URL/file/$3"
+
+      local curl_response=$(curl --location --request DELETE $curl_url \
+        --header "Authorization: Bearer $BEARER_TOKEN" \
+        --header "Content-Type: application/json" \
+        --silent)
+
+      __wd_print $curl_response
+
+    ;;
+
+    # Usage: file download <file id>
+    # https://developers.workiva.com/workiva-wdata/reference#wdata-downloadfileusingget
+    download)
+
+      __wd_auth
+
+      local wget_url="$WDATA_BASE_URL/file/$3/download"
+
+      wget --header "Authorization: Bearer $BEARER_TOKEN" --output-document ${3:(-6)}_$(date +"%Y-%m-%d@%H%M%S").csv ${wget_url}
+
+    ;;
+
+    # Usage: file import <table id> <file id>
+    # https://developers.workiva.com/workiva-wdata/reference#wdata-importfileusingpost
+    import)
+
+      __wd_auth
+
+      local curl_url="$WDATA_BASE_URL/table/${3}/import"
+
+      local curl_response=$(curl --location --request POST $curl_url \
+        --header "Authorization: Bearer $BEARER_TOKEN" \
+        --header "Content-Type: application/json"\
+        --data-raw "{\"fileId\": \"${4}\"}" \
+        --silent)
+
+      __wd_print $curl_response
+
+    ;;
+
+    # Usage: file info <file id>
+    # https://developers.workiva.com/workiva-wdata/reference#wdata-getfileusingget
+    info)
+
+      __wd_auth
+
+      local curl_url="$WDATA_BASE_URL/file/$3"
+
+      local curl_response=$(curl --location --request GET $curl_url \
+        --header "Accept: application/json" \
+        --header "Authorization: Bearer $BEARER_TOKEN" \
+        --silent)
+
+      __wd_print $curl_response
+
+    ;;
+
+    # Usage: file list <table id>
+    # https://developers.workiva.com/workiva-wdata/reference#wdata-getfilesusingget
+    list)
+
+      __wd_auth
+
+      local curl_url="$WDATA_BASE_URL/file?tableId=$3"
+
+      local curl_response=$(curl --location --request GET $curl_url \
+        --header "Authorization: Bearer $BEARER_TOKEN" \
+        --header "Accept: application/json" \
+        --silent)
+
+      __wd_print $curl_response
+
+    ;;
+
+    # Usage: file unimport <table id> <file id>
+    # https://developers.workiva.com/workiva-wdata/reference#wdata-unimportfileusingdelete
+    unimport)
+
+      __wd_auth
+
+      local curl_url="$WDATA_BASE_URL/table/${3}/import/{$4}"
+
+      local curl_response=$(curl --location --request DELETE $curl_url \
+        --header "Authorization: Bearer $BEARER_TOKEN" \
+        --header "Content-Type: application/json" \
+        --form "tableId=$3" \
+        --silent)
+
+      __wd_print $curl_response
+
+      if [[ "$5" == "--delete" ]]; then
+
+        local file_id=$(echo $curl_response | jq '.body .id' --raw-output)
+
+        wd file delete $file_id
+
+      fi
+
+    ;;
+
+    # Usage: file upload <table id> <path to file>
+    # https://developers.workiva.com/workiva-wdata/reference#wdata-uploadfileusingpost
+    upload)
+
+      __wd_auth
+
+      local curl_url="$WDATA_BASE_URL/file"
+
+      local curl_response=$(curl --location --request POST $curl_url \
+        --header "Authorization: Bearer $BEARER_TOKEN" \
+        --form "tableId=$3" \
+        --form "file=@$4" \
+        --silent)
+
+      __wd_print $curl_response
+
+      if [[ "$5" == "--import" ]]; then
+
+        local file_id=$(echo $curl_response | jq '.body .id' --raw-output)
+        local table_id=$(echo $curl_response | jq '.body .tableId' --raw-output)
+
+        wd file import $table_id $file_id
+      fi
+
+    ;;
+
+    --help | -h | *)
+      echo "Usage: wd file <command>"
+      echo
+      echo "Available Commands:"
+      echo "  wd file list <table id>                       Return all files associated with a table"
+      echo "  wd file info <file id>                        Return info about a file"
+      echo "  wd file upload <table id> <path to file>      Upload a file (append --import to import!)"
+      echo "  wd file delete <file id>                      Delete a file"
+      echo "  wd file download <file id>                    Download a file"
+      echo "  wd file import <table id> <file id>           Import a file"
+      echo "  wd file unimport <table id> <file id>         Unimport a file (append --delete to delete!)"
+      echo "  wd file --help                                Show this message"
+    ;;
+
+  esac
+}
+
+function __wd_table() {
+
+  case "$2" in
+
+    # Usage: table info <table id>
+    # https://developers.workiva.com/workiva-wdata/reference#wdata-gettableusingget
+    info)
+
+      __wd_auth
+
+      local curl_url="$WDATA_BASE_URL/table/$3"
+
+      local curl_response=$(curl --location --request GET $curl_url \
+        --header "Accept: application/json" \
+        --header "Authorization: Bearer $BEARER_TOKEN" \
+        --silent)
+
+      __wd_print $curl_response
+
+    ;;
+
+    # Usage: table list
+    # https://developers.workiva.com/workiva-wdata/reference#wdata-gettablesusingget
+    list)
+
+      __wd_auth
+
+      local curl_url="$WDATA_BASE_URL/table"
+
+      local curl_response=$(curl --location --request GET $curl_url \
+        --header "Content-Type: application/json" \
+        --header "Authorization: Bearer $BEARER_TOKEN" \
+        --silent)
+
+      __wd_print $curl_response
+    ;;
+
+    --help | -h | *)
+      echo "Usage: wd table <command>"
+      echo
+      echo "Available Commands:"
+      echo "  wd table list               Return all tables available in the workspace"
+      echo "  wd table info <table id>    Return info about the table"
+      echo "  wd table --help             Show this message"
+      # echo "  wd table create                               TODO: Create a new table"
+      # echo "  wd table delete                               TODO: Delete a table"
+    ;;
+
+  esac
+}
+
+# Start here!
+
+# Set variables
+# https://developers.workiva.com/workiva-guides/docs/setup#creating-an-oauth2-grant-in-wdesk
+CLIENT_ID="<your client_id>"
+CLIENT_SECRET="<your client_secret>"
+# Set this to "prod_eu" or "prod_us"
+ENVIRONMENT="<your environment>"
+
+# You probably don't want to change this
+environment_json=$(cat <<EOF
+{
+  "environments": [
+    {
+      "name":"prod_eu",
+      "iam_base_url":"https://api.eu.wdesk.com/iam/v1",
+      "wdata_base_url":"https://h.eu.wdesk.com/s/wdata/prep/api/v1"
+    },
+    {
+      "name":"prod_us",
+      "iam_base_url":"https://api.app.wdesk.com/iam/v1",
+      "wdata_base_url":"https://h.app.wdesk.com/s/wdata/prep/api/v1"
+    }
+  ]
+}
+EOF
+)
+
+# This is a bit of a necessary pain
+IAM_BASE_URL=$(echo $environment_json | jq --arg environment "$ENVIRONMENT" '.environments[] | select(.name == $environment) | .iam_base_url' --raw-output)
+WDATA_BASE_URL=$(echo $environment_json | jq --arg environment "$ENVIRONMENT" '.environments[] | select(.name == $environment) | .wdata_base_url' --raw-output)
+
+case "$1" in
+  file)
+    __wd_file "$@"
+  ;;
+
+  table)
+    __wd_table "$@"
+  ;;
+
+  --version | -v)
+      echo "wd 1.0"
+      echo "  Made in Hastings by Rey Dhuny (dhuny.com)"
+    ;;
+
+  --help | -h | *)
+      echo "Usage: wd <command>"
+      echo
+      echo "Available Commands:"
+      echo "  wd file         Do stuff with files"
+      echo "  wd table        Do stuff with tables"
+      echo "  wd --version    Show version"
+      echo "  wd --help       Show this message"
+  ;;
+
+esac
